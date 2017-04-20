@@ -9,6 +9,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class UpdateInSecond {
     private final long second;
 
+    // Допущение что количество событий в секунду не превосходит int
     private final AtomicInteger count;
 
     public long getSecond() {
@@ -23,6 +24,7 @@ public class UpdateInSecond {
         return count.incrementAndGet();
     }
 
+    // Если конструктор был вызван произошло как минимум одно событие
     UpdateInSecond(long second) {
         this.second = second;
         count = new AtomicInteger(1);

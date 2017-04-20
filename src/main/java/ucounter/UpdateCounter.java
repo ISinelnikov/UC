@@ -114,7 +114,6 @@ public class UpdateCounter {
 
         long result = 0;
 
-        // Если с последнего интервала прошло больше двух минут или последнего интервала не создавалось
         if (intervalCheck(methodCallTime, luTime, 120)) {
             return result;
         } else {
@@ -198,6 +197,13 @@ public class UpdateCounter {
         return result;
     }
 
+    /**
+     * Проверка обновления последнего интервала
+     * @param methodCallTime время вызова метода
+     * @param luTime время создания последнего интервала
+     * @param secondInN
+     * @return false - если с последнего интервала прошло больше secondInN - 1 или последнего интервала не создавалось
+     */
     private boolean intervalCheck(long methodCallTime, long luTime, int secondInN) {
         return (luTime == 0 || methodCallTime - luTime > secondInN - 1);
     }
