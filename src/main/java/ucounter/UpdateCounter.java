@@ -28,7 +28,7 @@ public class UpdateCounter {
     }
 
     private UpdateCounter () {
-        times = new ConcurrentLinkedDeque<>();
+        secondInterval = new ConcurrentLinkedDeque<>();
     }
 
     /**
@@ -40,13 +40,13 @@ public class UpdateCounter {
      * LIFO интервала
      * Интервалом считается промежуток от некоторого x до x + 59
      */
-    private ConcurrentLinkedDeque<UpdateInSecond> list;
+    private ConcurrentLinkedDeque<UpdateInSecond> currentInterval;
 
     /**
      * LIFO существования приложения
      * Хранит информацию о предыдущих минутных интервалах
      */
-    private ConcurrentLinkedDeque<ConcurrentLinkedDeque<UpdateInSecond>> times;
+    private ConcurrentLinkedDeque<ConcurrentLinkedDeque<UpdateInSecond>> secondInterval;
 
     /**
      * Проверяет попадание переданной секунды в текущий интервал
@@ -54,13 +54,13 @@ public class UpdateCounter {
      * скидывает предыдущий LIFO в LIFO приложения и заводит новый интервал
      * @param currentTime время вызова проверки
      */
-    private void replacementMinute(long currentTime) {
+    private void replacementMinuteInterval(long currentTime) {
         synchronized (UpdateCounter.class) {
             if (currentTime - lastUpdateTime > 60) {
-                if (list != null) {
-                    times.offer(list);
+                if (currentInterval != null) {
+                    secondInterval.offer(currentInterval);
                 }
-                list = new ConcurrentLinkedDeque<>();
+                currentInterval = new ConcurrentLinkedDeque<>();
                 lastUpdateTime = currentTime;
             }
         }
@@ -75,22 +75,22 @@ public class UpdateCounter {
 
         // Проверяем время последнего обновления интервала
         if (currentTime - lastUpdateTime > 60) {
-            replacementMinute(currentTime);
+            replacementMinuteInterval(currentTime);
         }
 
         // Проверяем необходимость добавления нового значения в интервал
-        if (list.peekFirst() == null || list.peekFirst().getSecond() < currentTime) {
+        if (currentInterval.peekFirst() == null || currentInterval.peekFirst().getSecond() < currentTime) {
             // Избежание параллельного добавления одного значения
             synchronized (UpdateCounter.class) {
                 // Check
-                if (list.peekFirst() == null || list.peekFirst().getSecond() < currentTime) {
-                    list.addFirst(new UpdateInSecond(currentTime));
+                if (currentInterval.peekFirst() == null || currentInterval.peekFirst().getSecond() < currentTime) {
+                    currentInterval.addFirst(new UpdateInSecond(currentTime));
                 } else {
-                    list.peekFirst().incrementCount();
+                    currentInterval.peekFirst().incrementCount();
                 }
             }
         } else {
-            list.peekFirst().incrementCount();
+            currentInterval.peekFirst().incrementCount();
         }
     }
 
@@ -105,25 +105,33 @@ public class UpdateCounter {
 
         long result = 0;
 
-        if (intervalCheck(methodCallTime, luTime, 120)) {
-            return result;
-        } else {
-            final long[] lastTime = { 0 };
+        final long[] lastTime = { 0 };
 
-            // Суммируем последние значения из прошлого интервала
-            if (times.peekLast() != null) {
-                times.peekLast().forEach((second) -> {
-                    if (methodCallTime - second.getSecond() < 59) {
-                        lastTime[0] += second.getCount();
-                    }
-                });
+        Iterator<UpdateInSecond> updateInSecondIterator = null;
+
+        synchronized (UpdateCounter.class) {
+            if (intervalCheck(methodCallTime, luTime, 120)) {
+                return result;
+            } else {
+                if (secondInterval.peekLast() != null) {
+                    updateInSecondIterator = secondInterval.peekLast().iterator();
+                }
             }
-
-            // События из текущего интервала
-            long firstTime = currentIntervalValue(methodCallTime, luTime, 60);
-
-            result = firstTime + lastTime[0];
         }
+
+        // Суммируем последние значения из прошлого интервала
+        if (updateInSecondIterator != null) {
+            updateInSecondIterator.forEachRemaining(second -> {
+                if (methodCallTime - second.getSecond() < 59) {
+                    lastTime[0] += second.getCount();
+                }
+            });
+        }
+
+        // События из текущего интервала
+        long firstTime = currentIntervalValue(methodCallTime, luTime, 60);
+
+        result = firstTime + lastTime[0];
 
         return result;
     }
@@ -147,7 +155,7 @@ public class UpdateCounter {
             if (intervalCheck(methodCallTime, luTime, secondInN)) {
                 return 0;
             } else {
-                dequeIterator = times.descendingIterator();
+                dequeIterator = secondInterval.descendingIterator();
 
                 // События не сброшенные в очередь
                 firstTime = currentIntervalValue(methodCallTime, luTime, secondInN);
@@ -157,7 +165,7 @@ public class UpdateCounter {
         final long[] lastTime = { 0 };
 
         //  Iterators weakly consistent
-        times.descendingIterator().forEachRemaining((minutes) -> {
+        secondInterval.descendingIterator().forEachRemaining((minutes) -> {
             if (methodCallTime - minutes.peekLast().getSecond() < secondInN - 1) {
                 minutes.descendingIterator().forEachRemaining((second) -> {
                     if (methodCallTime - second.getSecond() < secondInN - 1) {
@@ -186,11 +194,11 @@ public class UpdateCounter {
         final long[] result = { 0 };
         Iterator<UpdateInSecond> updateInSecondIterator = null;
         synchronized (UpdateCounter.class) {
-            if (methodCallTime - luTime < interval) updateInSecondIterator = list.descendingIterator();
+            if (methodCallTime - luTime < interval) updateInSecondIterator = currentInterval.descendingIterator();
         }
         if (updateInSecondIterator != null) {
             // Раскручиваем очередь с верхнего элемента
-            list.descendingIterator().forEachRemaining(second -> {
+            updateInSecondIterator.forEachRemaining(second -> {
                 if (methodCallTime - second.getSecond() >= 0) {
                     result[0] += second.getCount();
                 }
